@@ -176,3 +176,7 @@ cython_debug/
 # Ignore the data
 data/extracted/
 data/raw/*.zip
+
+# Ignore both the plotly html output and the json/csv output
+*.html
+output/
