@@ -1,0 +1,5 @@
+{
+  "mypy.runUsingActiveInterpreter": true,
+  "mypy.dmypyExecutable": "${workspaceFolder}/.venv/Scripts/dympy",
+  "mypy.mypyExecutable": "${workspaceFolder}/.venv/Scripts/mypy"
+}
