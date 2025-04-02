@@ -22,4 +22,123 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.11.2"
+pandas-stubs = "^2.2.3.250308"
+mypy = "^1.15.0"
 
+[tool.mypy]
+python_version = "3.13"  # Adjust to your Python version
+strict = true            # Enforces strict type checking
+ignore_missing_imports = true  # Ignores type checking for untyped third-party libraries (common in data science)
+warn_unused_configs = true     # Warns if there are unused MyPy settings
+warn_redundant_casts = true    # Flags unnecessary type casts
+warn_unused_ignores = true     # Flags unused # type: ignore comments
+disallow_any_unimported = false  # Allows use of Any from unimported modules (useful for dynamic data science code)
+check_untyped_defs = true      # Checks function bodies even if they lack type hints
+plugins = ["numpy.typing.mypy_plugin"]  # Enables NumPy-specific type checking (requires numpy>=1.21)
+
+# Exclude directories or files common in data science projects
+exclude = [
+    "notebooks/",        # Jupyter notebooks often have exploratory code
+    "tests/",            # Tests may have different linting rules
+    "scripts/",          # Ad-hoc scripts may not need strict typing
+    "venv/",             # Virtual environment
+]
+
+# Per-module overrides for data science libraries with partial or no type stubs
+[[tool.mypy.overrides]]
+module = [
+    "matplotlib.*",
+    "scipy.*",
+    "sklearn.*",
+    "plotly",
+]
+ignore_errors = true  # Skips type checking for these libs due to incomplete stubs
+
+[[tool.mypy.overrides]]
+module = "torch.*"  # If using PyTorch
+ignore_errors = true
+
+[tool.ruff]
+line-length = 100  # Slightly longer lines for readability in data science code
+target-version = "py311"  # Match your Python version
+extend-exclude = [
+    "notebooks/",  # Exclude Jupyter notebooks
+    "tests/",
+    "scripts/",
+    "__pycache__/",
+    "venv/",
+        ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+]
+
+indent-width = 4
+
+# Enable key rule sets for clean, maintainable code
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes (unused imports, variables)
+    "I",  # isort (import sorting)
+    "D",  # pydocstyle (docstring conventions)
+    "B",  # flake8-bugbear (common bugs)
+    "Q",  # flake8-quotes (consistent quotes)
+    "C",  # mccabe (cyclomatic complexity)
+    "UP", # pyupgrade (modern Python syntax)
+    "RUF", # Ruff-specific rules
+]
+
+fixable = ["ALL"]
+
+# Ignore rules that may conflict with data science workflows
+ignore = [
+    "D107",  # Missing docstring in __init__ (often unnecessary in data science)
+    "D417",  # Missing argument descriptions in docstrings (overkill for exploratory code)
+    "E501",  # Line length (handled by Ruff's line-length setting)
+    "B008",  # Function call in argument defaults (common in ML configs)
+    "C901",  # McCabe complexity (data science code can be inherently complex)
+]
+
+# Configure Ruff's docstring conventions (Google style is popular in data science)
+[tool.ruff.pydocstyle]
+convention = "google"
+
+# Configure import sorting
+[tool.ruff.isort]
+known-third-party = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scipy",
+    "sklearn",
+    "plotly",
+    "seaborn",
+    "torch",
+]  # Common data science libraries
+
+# Enable Ruff's formatter (optional, can replace Black)
+[tool.ruff.format]
+quote-style = "double"  # Use double quotes consistently
+indent-style = "space"
