@@ -7,20 +7,25 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import logging
 
+PROJECT_ROOT = Path(__file__).parent.parent
+
+LOG_DIR = PROJECT_ROOT / "output" / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(funcName)s - %(message)s",
     handlers=[
-        logging.FileHandler("congress_analysis.log"),  # Log to file
-        logging.StreamHandler(),  # Log to console
+        logging.FileHandler(LOG_DIR / "congress_analysis.log"),
+        logging.StreamHandler(),
     ],
 )
 logger = logging.getLogger(__name__)
 
 
 class CongressAnalyzer:
-    def __init__(self, json_dir: str = "data/extracted/BioguideProfiles") -> None:
-        self.json_dir = Path(json_dir)
+    def __init__(self, json_dir: str = "../data/extracted/BioguideProfiles") -> None:
+        self.json_dir = (Path(__file__).parent / json_dir).resolve()
         self.tenure_data = []
         self.df: None | pd.DataFrame = None
 
@@ -137,6 +142,10 @@ class CongressAnalyzer:
         """Create interactive Plotly visualizatiosn of the data."""
         if self.df is None or self.df.empty:
             self.load_dataframe()
+
+        VIS_DIR = PROJECT_ROOT / "output" / "visualizations"
+        VIS_DIR.mkdir(parents=True, exist_ok=True)
+
         # Create subplot figure with 2 rows and 2 columns
         fig = make_subplots(
             rows=2,
@@ -224,7 +233,7 @@ class CongressAnalyzer:
         fig.update_yaxes(title_text="Tenure (Years)", row=2, col=2)
 
         # Save and show
-        fig.write_html("congress_tenure_analysis.html")
+        fig.write_html(VIS_DIR / "congress_tenure_analysis.html")
         fig.show()
 
         scatter_fig = px.scatter(
@@ -241,18 +250,26 @@ class CongressAnalyzer:
                 "chamber": "Chamber",
             },
         )
-        scatter_fig.write_html("detailed_tenure_scatter.html")
+        scatter_fig.update_layout(
+            template="plotly_white",
+            font=dict(size=12),
+            showlegend=True,
+        )
+        scatter_fig.write_html(VIS_DIR / "detailed_tenure_scatter.html")
         scatter_fig.show()
 
-    def export_results(self, output_dir: str = "output") -> None:
+    def export_results(self, output_dir: str = "../output") -> None:
         """Export analysis results and visualizations"""
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
+        output_path = (Path(__file__).parent / output_dir).resolve()
+        results_dir = output_path / "results"
+        vis_dir = output_path / "visualizations"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        vis_dir.mkdir(parents=True, exist_ok=True)
 
         try:
             if self.df is not None:
-                self.df.to_csv(output_path / "tenure_data.csv", index=False)
-            with (output_path / "analysis_summary.json").open("w") as f:
+                self.df.to_csv(results_dir / "tenure_data.csv", index=False)
+            with (results_dir / "analysis_summary.json").open("w") as f:
                 json.dump(self.analyze_tenure(), f, indent=2)
             logger.info("Results exported to %s", output_dir)
         except Exception:
