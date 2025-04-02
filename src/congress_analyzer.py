@@ -1,11 +1,15 @@
+from __future__ import annotations
+
+import argparse
 import json
-from pathlib import Path
+import logging
 from datetime import datetime
+from pathlib import Path
+from typing import Any, NamedTuple, TypedDict
+
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import logging
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -23,19 +27,49 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class TenureInfo(TypedDict):
+    id: str
+    tenure_years: float
+    start_date: datetime
+    end_date: datetime
+    congresses: list[int]
+    chamber: str
+    num_terms: int
+
+
+class CongressDate(NamedTuple):
+    start_date: str
+    end_date: str | None
+    congress_num: int | None
+    chamber: str | None
+
+
 class CongressAnalyzer:
     def __init__(self, json_dir: str = "../data/extracted/BioguideProfiles") -> None:
+        """Initialize the CongressAnalyzer with a directory path.
+
+        Args:
+            json_dir (str): Directory containing JSON files with congressional data.
+        """
         self.json_dir = (Path(__file__).parent / json_dir).resolve()
-        self.tenure_data = []
+        self.tenure_data: list[TenureInfo] = []
         self.df: None | pd.DataFrame = None
 
     def calculate_exact_years(self, start: datetime, end: datetime) -> float:
-        """Calculate exact years between dates accounting for leap years"""
+        """Calculate the exact years between two datetime objects, accounting for leap years.
+
+        Args:
+            start (datetime): Start date of the tenure.
+            end (datetime): End date of the tenure.
+
+        Returns:
+            float: Tenure duration in years.
+        """
         delta = end - start
         return delta.total_seconds() / (365.25 * 24 * 3600)
 
     def process_json_files(self) -> None:
-        """Process all JSON files in the directory"""
+        """Process all JSON files in the specified directory and load into DataFrame."""
         logger.info("Starting processing of JSON files in %s", self.json_dir)
         if not self.json_dir.exists():
             logger.error("Directory %s does not exist", self.json_dir)
@@ -44,7 +78,17 @@ class CongressAnalyzer:
         for json_file in self.json_dir.glob("*.json"):
             self._process_single_file(json_file)
 
+        self.df = self.load_dataframe()
+
     def _process_single_file(self, json_file: Path) -> None:
+        """Process a single JSON file and append tenure data.
+
+        Args:
+            json_file (Path): Path to the JSON file.
+
+        Returns:
+            bool: True if job positions were found, False otherwise.
+        """
         try:
             with json_file.open("r", encoding="utf-8") as file:
                 data = json.load(file)
@@ -58,18 +102,29 @@ class CongressAnalyzer:
                 return
 
             dates = self._extract_dates(job_positions, json_file)
-            if dates:
-                if tenure_info := self._calculate_tenure(dates, us_congress_bio_id):
-                    self.tenure_data.append(tenure_info)
+            if dates and (
+                tenure_info := self._calculate_tenure(dates, us_congress_bio_id)
+            ):
+                self.tenure_data.append(tenure_info)
 
         except json.JSONDecodeError:
             logger.exception("JSON parsing error in %s: %s", json_file)
         except Exception:
             logger.exception("Unexpected error processing %s", json_file)
 
-    def _extract_dates(self, positions: list[dict], json_file: Path) -> list[tuple]:
-        """Extract and validate dates from job positions"""
-        dates = []
+    def _extract_dates(
+        self, positions: list[dict[str, Any]], json_file: Path
+    ) -> list[CongressDate]:
+        """Extract and validate dates from job positions.
+
+        Args:
+            positions (list[dict]): List of job position dictionaries.
+            json_file (Path): Path to the JSON file for logging.
+
+        Returns:
+            List[CongressDate]: List of extracted date records.
+        """
+        dates: list[CongressDate] = []
         for position in positions:
             try:
                 congress_aff = position.get("congressAffiliation", {})
@@ -82,30 +137,55 @@ class CongressAnalyzer:
                 chamber = job.get("name")
 
                 if start_date:
-                    dates.append((start_date, end_date, congress_num, chamber))
+                    datetime.strptime(start_date, "%Y-%m-%d")
+                    if end_date:
+                        datetime.strptime(end_date, "%Y-%m-%d")
+                    if congress_num is not None and not isinstance(congress_num, int):
+                        logger.warning("Invalid congress number in %s", json_file)
+                        congress_num = None
+                    dates.append(
+                        CongressDate(start_date, end_date, congress_num, chamber)
+                    )
+            except ValueError as e:
+                logger.warning("Invalid date format in %s: %s", json_file, e)
             except AttributeError as e:
                 logger.warning("Date extraction error in %s: %s", json_file, str(e))
         return dates
 
-    def _calculate_tenure(self, dates: list[tuple], bio_id: str) -> dict | None:
-        """Calculate tenure duration and related metrics"""
+    def _calculate_tenure(
+        self, dates: list[CongressDate], bio_id: str
+    ) -> TenureInfo | None:
+        """Calculate tenure duration and related metrics.
+
+        Args:
+            dates (List[CongressDate]): List of date records.
+            bio_id (str): Unique identifier for the member.
+
+        Returns:
+            TenureInfo | None: Tenure information or None if calculation fails.
+        """
         try:
             dates.sort(key=lambda x: x[0])
-            start = datetime.strptime(dates[0][0], "%Y-%m-%d")
+            start = datetime.strptime(dates[0].start_date, "%Y-%m-%d")
             last_end = (
-                dates[-1][1] if dates[-1][1] else datetime.now().strftime("%Y-%m-%d")
+                dates[-1].end_date
+                if dates[-1].end_date
+                else datetime.now().strftime("%Y-%m-%d")
             )
             end = datetime.strptime(last_end, "%Y-%m-%d")
 
-            return {
+            tenure_info: TenureInfo = {
                 "id": bio_id,
                 "tenure_years": self.calculate_exact_years(start, end),
                 "start_date": start,
                 "end_date": end,
-                "congresses": [d[2] for d in dates if d[2] is not None],
-                "chamber": dates[0][3] if dates[0][3] else "Unknown",
+                "congresses": [
+                    d.congress_num for d in dates if d.congress_num is not None
+                ],
+                "chamber": dates[0].chamber if dates[0].chamber else "Unknown",
                 "num_terms": len(dates),
             }
+            return tenure_info
         except (ValueError, TypeError):
             logger.exception("Tenure calculation error for %s", bio_id)
             return None
@@ -114,15 +194,16 @@ class CongressAnalyzer:
         """Load data into Pandas DataFrame"""
         if not self.tenure_data:
             logger.warning("No tenure data available to load into DataFrame")
-        df = pd.DataFrame(self.tenure_data)
-        logger.info("DataFrame loaded with %d records", len(df))
-        return df
+            return pd.DataFrame()
+        self.df = pd.DataFrame(self.tenure_data)
+        logger.info("DataFrame loaded with %d records", len(self.df))
+        return self.df
 
-    def analyze_tenure(self) -> dict:
+    def analyze_tenure(self) -> dict[str, Any]:
         """Calculate comprehensive tenure stats."""
         if self.df is None or self.df.empty:
             logger.warning("DataFrame is empty or not loaded")
-            self.load_dataframe()
+            self.df = self.load_dataframe()
 
         tenure_stats = (
             self.df["tenure_years"].agg(["mean", "median", "max", "min"]).to_dict()
@@ -141,7 +222,7 @@ class CongressAnalyzer:
     def create_visualizations(self) -> None:
         """Create interactive Plotly visualizatiosn of the data."""
         if self.df is None or self.df.empty:
-            self.load_dataframe()
+            self.df = self.load_dataframe()
 
         VIS_DIR = PROJECT_ROOT / "output" / "visualizations"
         VIS_DIR.mkdir(parents=True, exist_ok=True)
@@ -200,11 +281,11 @@ class CongressAnalyzer:
             x=self.df["num_terms"],
             y=self.df["tenure_years"],
             mode="markers",
-            marker=dict(
-                color=self.df["chamber"].astype("category").cat.codes,
-                colorscale="viridis",
-                showscale=True,
-            ),
+            marker={
+                "color": self.df["chamber"].astype("category").cat.codes,
+                "colorscale": "viridis",
+                "showscale": True,
+            },
             text=self.df["chamber"],
             name="Terms vs Tenure",
             hovertemplate="Terms: %{x}<br>Years: %{y:.2f}<br>Chamber: %{text}",
@@ -219,6 +300,7 @@ class CongressAnalyzer:
             title_text="Congressional Tenure Analysis",
             showlegend=True,
             template="plotly_white",
+            font={"size": 12},
         )
 
         # Update axes labels
@@ -252,7 +334,7 @@ class CongressAnalyzer:
         )
         scatter_fig.update_layout(
             template="plotly_white",
-            font=dict(size=12),
+            font={"size": 12},
             showlegend=True,
         )
         scatter_fig.write_html(VIS_DIR / "detailed_tenure_scatter.html")
@@ -277,8 +359,19 @@ class CongressAnalyzer:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Analyze congressional tenure data.")
+    parser.add_argument(
+        "--input-dir",
+        default="data/extracted/BioguideProfiles",
+        help="Input JSON directory",
+    )
+    parser.add_argument(
+        "--output-dir", default="output", help="Output directory for results"
+    )
+    args = parser.parse_args()
+
     try:
-        analyzer = CongressAnalyzer()
+        analyzer = CongressAnalyzer(json_dir=args.input_dir)
         analyzer.process_json_files()
         analyzer.df = analyzer.load_dataframe()
 
@@ -287,6 +380,6 @@ if __name__ == "__main__":
             print(f"{key}: {value}")
 
         analyzer.create_visualizations()
-        analyzer.export_results()
+        analyzer.export_results(output_dir=args.output_dir)
     except Exception as e:
-        logger.exception("Main execution failed")
+        logger.error("Main execution failed: %s", e)
